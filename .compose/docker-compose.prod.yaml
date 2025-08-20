@@ -1,0 +1,117 @@
+name: deploy-payment-project
+
+x-postgres-common:
+  &postgres-common
+  image: postgres:17-alpine
+  restart: always
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres"]
+    interval: 5s
+    timeout: 5s
+    retries: 5
+
+services:
+  api:
+    build: ../payment_project/
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ../payment_project:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  migration_handler:
+    build: ../payment_project/
+    command: |
+      bash -c "
+      python manage.py makemigrations --merge --noinput;
+      python manage.py migrate
+      "
+    volumes:
+      - ../payment_project:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    <<: *postgres-common
+    ports:
+      - "5432:5432"
+    environment:
+    - "POSTGRES_HOST_AUTH_METHOD=scram-sha-256\nhost replication all 0.0.0.0/0 md5"
+    - "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256"
+    - "POSTGRES_USER=postgres"
+    - "POSTGRES_PASSWORD=postgres"
+    - "POSTGRES_DB=paymentproject"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+      - ./db/00_init.sql:/docker-entrypoint-initdb.d/00_init.sql
+    command: |
+      postgres
+      -c wal_level=replica
+      -c hot_standby=on
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c hot_standby_feedback=on
+  
+  db-replica:
+    <<: *postgres-common
+    user: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data/
+    environment:
+      - "PGUSER=replicator"
+      - "PGPASSWORD=replicator_password"
+    command: >
+      bash -c "
+      if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+        echo 'No PG cluster found, running basebackup...'
+        until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=db --port=5432
+        do
+          echo 'Waiting for primary to be ready...'
+          sleep 1s
+        done
+        chmod 0700 /var/lib/postgresql/data
+      else
+        echo 'Replica data directory already initialized, skipping basebackup.'
+      fi;
+      exec postgres
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+
+  celery:
+    build: ../payment_project/
+    command: celery -A payment_project worker -l info
+    volumes:
+      - ../payment_project:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  postgres_replica_data:
+
+networks:
+  default:
+    driver: bridge
