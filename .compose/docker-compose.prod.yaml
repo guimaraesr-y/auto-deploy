@@ -114,4 +114,5 @@ volumes:
 
 networks:
   default:
+    name: payment-project
     driver: bridge
