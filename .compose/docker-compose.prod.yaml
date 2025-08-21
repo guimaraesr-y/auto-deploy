@@ -108,6 +108,19 @@ services:
       redis:
         condition: service_healthy
 
+  db-dumper:
+    build: ../dumper/
+    environment:
+      - PGHOST=db-replica
+      - PGDATABASE=paymentproject
+      - PGUSER=replicator
+      - PGPASSWORD=replicator_password
+    volumes:
+      - ./db/dumps:/dumps
+    depends_on:
+      db-replica:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   postgres_replica_data:
