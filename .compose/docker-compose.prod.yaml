@@ -42,14 +42,14 @@ services:
     ports:
       - "5432:5432"
     environment:
-    - "POSTGRES_HOST_AUTH_METHOD=scram-sha-256\nhost replication all 0.0.0.0/0 md5"
+    - "POSTGRES_HOST_AUTH_METHOD=scram-sha-256"
     - "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256"
     - "POSTGRES_USER=postgres"
     - "POSTGRES_PASSWORD=postgres"
     - "POSTGRES_DB=paymentproject"
     volumes:
       - postgres_data:/var/lib/postgresql/data/
-      - ./db/00_init.sql:/docker-entrypoint-initdb.d/00_init.sql
+      - ./db/00_init_db.sql:/docker-entrypoint-initdb.d/00_init.sql
     command: |
       postgres
       -c wal_level=replica
@@ -108,18 +108,44 @@ services:
       redis:
         condition: service_healthy
 
-  db-dumper:
-    build: ../dumper/
+  # db-dumper:
+  #   build: ../dumper/
+  #   environment:
+  #     - PGHOST=db-replica
+  #     - PGDATABASE=paymentproject
+  #     - PGUSER=replicator
+  #     - PGPASSWORD=replicator_password
+  #   volumes:
+  #     - ./db/dumps:/dumps
+  #   depends_on:
+  #     db-replica:
+  #       condition: service_healthy
+
+  pg-anon-scheduler:
+    build:
+      context: ../db-anon
+    image: pg-anon-scheduler:latest
     environment:
-      - PGHOST=db-replica
+      - "POSTGRES_USER=postgres"
+      - "POSTGRES_PASSWORD=postgres"
+      - "POSTGRES_DB=paymentproject-anon"
+      - PGHOST=db
       - PGDATABASE=paymentproject
-      - PGUSER=replicator
-      - PGPASSWORD=replicator_password
+      - PGUSER=postgres
+      - PGPASSWORD=postgres
+      - INTERVAL_SECONDS=3600      # rodar a cada 3600s (1h). ajuste conforme quiser
+      - RETENTION_COUNT=168        # mantém 168 arquivos (ex: ~7 dias se hourly)
+      - MASKING_RULES=/masks/masking_rules.sql
+      - DUMP_DIR=/dumps
     volumes:
       - ./db/dumps:/dumps
+      - ./db/masking_rules.sql:/masks/masking_rules.sql:ro
     depends_on:
-      db-replica:
+      db:
         condition: service_healthy
+    networks:
+      - default
+    restart: always
 
 volumes:
   postgres_data:
