@@ -57,35 +57,6 @@ services:
       -c max_wal_senders=10
       -c max_replication_slots=10
       -c hot_standby_feedback=on
-  
-  db-replica:
-    <<: *postgres-common
-    user: postgres
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_replica_data:/var/lib/postgresql/data/
-    environment:
-      - "PGUSER=replicator"
-      - "PGPASSWORD=replicator_password"
-    command: >
-      bash -c "
-      if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
-        echo 'No PG cluster found, running basebackup...'
-        until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host=db --port=5432
-        do
-          echo 'Waiting for primary to be ready...'
-          sleep 1s
-        done
-        chmod 0700 /var/lib/postgresql/data
-      else
-        echo 'Replica data directory already initialized, skipping basebackup.'
-      fi;
-      exec postgres
-      "
-    depends_on:
-      db:
-        condition: service_healthy
 
   redis:
     image: "redis:alpine"
@@ -108,27 +79,11 @@ services:
       redis:
         condition: service_healthy
 
-  # db-dumper:
-  #   build: ../dumper/
-  #   environment:
-  #     - PGHOST=db-replica
-  #     - PGDATABASE=paymentproject
-  #     - PGUSER=replicator
-  #     - PGPASSWORD=replicator_password
-  #   volumes:
-  #     - ./db/dumps:/dumps
-  #   depends_on:
-  #     db-replica:
-  #       condition: service_healthy
-
   pg-anon-scheduler:
     build:
       context: ../db-anon
     image: pg-anon-scheduler:latest
     environment:
-      - "POSTGRES_USER=postgres"
-      - "POSTGRES_PASSWORD=postgres"
-      - "POSTGRES_DB=paymentproject-anon"
       - PGHOST=db
       - PGDATABASE=paymentproject
       - PGUSER=postgres
@@ -137,9 +92,11 @@ services:
       - RETENTION_COUNT=168        # mantém 168 arquivos (ex: ~7 dias se hourly)
       - MASKING_RULES=/masks/masking_rules.sql
       - DUMP_DIR=/dumps
+      - CONFIG_FILE=/config/config.txt
     volumes:
       - ./db/dumps:/dumps
       - ./db/masking_rules.sql:/masks/masking_rules.sql:ro
+      - ./db/config.anon.txt:/config/config.txt
     depends_on:
       db:
         condition: service_healthy
