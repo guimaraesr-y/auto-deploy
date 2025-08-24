@@ -42,21 +42,11 @@ services:
     ports:
       - "5432:5432"
     environment:
-    - "POSTGRES_HOST_AUTH_METHOD=scram-sha-256"
-    - "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256"
     - "POSTGRES_USER=postgres"
     - "POSTGRES_PASSWORD=postgres"
     - "POSTGRES_DB=paymentproject"
     volumes:
       - postgres_data:/var/lib/postgresql/data/
-      - ./db/00_init_db.sql:/docker-entrypoint-initdb.d/00_init.sql
-    command: |
-      postgres
-      -c wal_level=replica
-      -c hot_standby=on
-      -c max_wal_senders=10
-      -c max_replication_slots=10
-      -c hot_standby_feedback=on
 
   redis:
     image: "redis:alpine"
