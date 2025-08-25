@@ -71,7 +71,7 @@ services:
 
   pg-anon-scheduler:
     build:
-      context: ../db-anon
+      context: ../dump-scheduler
     image: pg-anon-scheduler:latest
     environment:
       - PGHOST=db
